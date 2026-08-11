@@ -11,7 +11,9 @@ import aiomysql
 
 from .die_layout import DIE_SERIALS, die_label, parse_sn, serial_grid_meta
 from .judge import apply_derived, evaluate_die, summarize
-from .shot_map import grid_meta, parse_shot, shot_to_xy
+from .layout_store import get_layout, public_layout_info, require_layout
+from .layout_tsv import lookup_shot_xy
+from .shot_map import parse_shot, shot_to_xy
 from .store import get_db_config
 
 def _resolve_mock_path() -> Path:
@@ -211,14 +213,30 @@ def _is_plausible_wafer_name(wafer: str) -> bool:
     return True
 
 
-def _assign_map_coordinates(dies: list[dict[str, Any]]) -> None:
+def _assign_map_coordinates(dies: list[dict[str, Any]]) -> dict[str, Any]:
     """
-    图谱坐标（对照 新head_utf8.csv）：
-    1) Shot 内嵌坐标：82(7,6) → (7,6)   【主路径】
-    2) SN 内坐标：\"(5,6)\"$$SN0303 → (5,6)
-    3) 仅 Shot 编号时按 列×10+行 回退
+    图谱坐标：
+    - 已上传布局时：按 Level1 custom（Shot 号）映射到 (col,row)= (x,y)；
+      库内 Shot/SN 嵌套坐标视为 prober，不参与画图。
+    - 无布局时：兼容旧逻辑（内嵌坐标 → SN 坐标 → 编号回退）。
+    返回坐标质量统计。
     """
+    layout = get_layout()
+    matched = 0
+    unmatched: list[str] = []
     for d in dies:
+        shot_key = str(d.get("shot") or "").strip()
+        if layout is not None:
+            xy = lookup_shot_xy(layout, shot_key) if shot_key else None
+            if xy is not None:
+                d["x"], d["y"] = xy
+                matched += 1
+            else:
+                d["x"], d["y"] = None, None
+                if shot_key and shot_key not in unmatched:
+                    unmatched.append(shot_key)
+            continue
+
         sx, sy = d.get("shot_x"), d.get("shot_y")
         if isinstance(sx, int) and isinstance(sy, int):
             d["x"], d["y"] = sx, sy
@@ -227,12 +245,18 @@ def _assign_map_coordinates(dies: list[dict[str, Any]]) -> None:
         if isinstance(sn_x, int) and isinstance(sn_y, int):
             d["x"], d["y"] = sn_x, sn_y
             continue
-        # 用原始 Shot 文本，以便 82(7,6) / 纯编号都能解析
         xy = shot_to_xy(d.get("shot_raw") or d.get("shot"))
         if xy is not None:
             d["x"], d["y"] = xy
         else:
             d["x"], d["y"] = None, None
+
+    return {
+        "layout_driven": layout is not None,
+        "matched_dies": matched,
+        "unmatched_shots": unmatched[:40],
+        "unmatched_shot_count": len(unmatched),
+    }
 
 
 def _new_die_shell(
@@ -374,7 +398,9 @@ def _pivot_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized = apply_derived(raw_tests)
         merged = {**raw_tests, **normalized}
         dies.append({**die, "tests": merged})
-    _assign_map_coordinates(dies)
+    coord_quality = _assign_map_coordinates(dies)
+    for d in dies:
+        d["_coord_quality"] = coord_quality
     return dies
 
 
@@ -871,26 +897,18 @@ async def judge_wafer(
     start: str | None = None,
     end: str | None = None,
 ) -> dict[str, Any]:
+    layout = require_layout()
     dies_raw = await get_dies(wafer, start=start, end=end)
     judged: list[dict[str, Any]] = []
+    coord_quality: dict[str, Any] = {"layout_driven": True}
     for die in dies_raw:
+        if "_coord_quality" in die:
+            coord_quality = die.pop("_coord_quality", coord_quality)
         result = evaluate_die(die["tests"], specs)
         judged.append({**die, **result})
     stats = summarize(judged, specs)
     shots = _aggregate_shots(judged)
-    xs = [s["x"] for s in shots if s.get("x") is not None]
-    ys = [s["y"] for s in shots if s.get("y") is not None]
-    base = grid_meta()
-    if xs and ys:
-        map_grid = {
-            **base,
-            "min_x": int(min(xs)),
-            "max_x": int(max(xs)),
-            "min_y": int(min(ys)),
-            "max_y": int(max(ys)),
-        }
-    else:
-        map_grid = base
+    map_grid = dict(layout.get("map_grid") or {})
 
     # 诊断：有多少 Die 读到了非空 ItemValue（便于排查 Note 空白 / HeadID 未联通）
     valued = 0
@@ -914,9 +932,10 @@ async def judge_wafer(
         "dies": judged,
         "shots": shots,
         "stats": stats,
-        "die_grid": serial_grid_meta(),
-        "die_serials": DIE_SERIALS,
+        "die_grid": layout.get("die_grid") or serial_grid_meta(),
+        "die_serials": layout.get("die_serials") or DIE_SERIALS,
         "map_grid": map_grid,
+        "layout": public_layout_info(layout),
         "data_quality": {
             "wavelength": TARGET_WAVELENGTH,
             "die_count": len(judged),
@@ -926,9 +945,11 @@ async def judge_wafer(
             "head_id_sample": head_ids_sample,
             "shots_ge_80": sorted(shots_high, key=lambda s: int(s)),
             "fetch": dict(_LAST_FETCH_STATS),
+            "coord": coord_quality,
             "schema_note": (
                 "Die=summaryhead.ID; 参数行=summarydetail.ID; "
-                "关联 summarydetail.HeadID=summaryhead.ID; 只读 1311"
+                "关联 summarydetail.HeadID=summaryhead.ID; 只读 1311; "
+                "图谱坐标由上传的 Level1 custom→(col,row) 决定"
             ),
         },
     }

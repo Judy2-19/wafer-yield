@@ -147,7 +147,7 @@ export type ShotSummary = {
 }
 
 export type DieGridCell = {
-  serial: string
+  serial: string | null
   row: number
   col: number
   empty?: boolean
@@ -166,6 +166,7 @@ export type JudgeResult = {
   die_grid?: DieGridCell[]
   die_serials?: string[]
   map_grid?: { min_x: number; max_x: number; min_y: number; max_y: number }
+  layout?: LayoutInfo | null
   stats: {
     total: number
     pass_count: number
@@ -173,6 +174,39 @@ export type JudgeResult = {
     yield: number
     fail_rate_details: Array<{ name: string; fail_count: number; fail_rate: number }>
   }
+  data_quality?: {
+    valued_test_count?: number
+    sample?: string[]
+    fetch?: { valued_itemvalue?: number; eav_1311?: number; head_rows?: number }
+    coord?: {
+      layout_driven?: boolean
+      matched_dies?: number
+      unmatched_shots?: string[]
+      unmatched_shot_count?: number
+    }
+  }
+}
+
+export type LayoutSummary = {
+  layout_id?: string
+  filename?: string
+  shot_count: number
+  site_count: number
+  test_key_count: number
+  shot_rows: number
+  shot_cols: number
+  die_rows: number
+  die_cols: number
+}
+
+export type LayoutInfo = {
+  layout_id?: string
+  filename?: string
+  summary: LayoutSummary
+  map_grid?: { min_x: number; max_x: number; min_y: number; max_y: number }
+  die_grid?: DieGridCell[]
+  die_serials?: string[]
+  test_keys?: Array<{ row: number; col: number }>
 }
 
 export type TimeRange = { start?: string | null; end?: string | null }
@@ -185,6 +219,19 @@ export async function fetchWafers(range?: TimeRange) {
     },
   })
   return data.wafers
+}
+
+export async function fetchCurrentLayout() {
+  return apiGet<{ ok: boolean; layout: LayoutInfo | null; message?: string }>('/layout/current')
+}
+
+export async function uploadLayout(file: File) {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await http.post<{ ok: boolean; layout: LayoutInfo }>('/layout/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
 }
 
 export async function fetchItemNames(wafer?: string) {

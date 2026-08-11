@@ -42,8 +42,9 @@ npm run dev
 ## 功能摘要
 
 - 按 Min/Max 多参数判定（全部通过才为 Pass）
-- 自研 Wafer Map：Pass/Fail 上色，点击晶粒看详情表
-- Shot → (x,y)：Shot=列×10+行（如 45→第4列第5行）；圆形有效位每行 5/7/7/7/5/3，共 34 位，在 10 列宽内居中
+- **上传 Shot 布局 TSV**（FIELD_SPEC：Level1 Shot + Level2 小格模板，样例见 `examples/SF_DR8.txt`），按 Level1 `custom`→`(col,row)` 画图谱；不再使用固定 34 位网格
+- 自研 Wafer Map：Pass/Fail 上色，点击 Shot → 选择 Die 看详情
+- Die 选择器由 Level2 模板动态生成；矩形内缺失位为 Test Key
 - DR8-PIC **默认模板不可覆盖**；可另存客户标准，刷新后保持上次选用模板
 - 支持从数据库 `ItemName` 追加自定义判定项
 - Excel 导出（汇总 / 全部 / 不良品清单）

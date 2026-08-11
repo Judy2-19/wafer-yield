@@ -6,6 +6,7 @@ import {
   deleteTemplate,
   ensureApiReady,
   exportExcel,
+  fetchCurrentLayout,
   fetchItemNames,
   fetchTemplates,
   fetchWafers,
@@ -17,9 +18,11 @@ import {
   saveJudge,
   saveTemplate,
   testDb,
+  uploadLayout,
   type DieGridCell,
   type DiePayload,
   type JudgeResult,
+  type LayoutInfo,
   type ShotSummary,
   type SpecItem,
   type WaferInfo,
@@ -80,6 +83,9 @@ const templateId = ref('dr8-pic')
 const specs = ref<SpecItem[]>([])
 const result = ref<JudgeResult | null>(null)
 const loading = ref(false)
+const layoutInfo = ref<LayoutInfo | null>(null)
+const layoutUploading = ref(false)
+const layoutFileInput = ref<HTMLInputElement | null>(null)
 
 function fmtTime(d: Date | null | undefined) {
   if (!d) return null
@@ -194,12 +200,19 @@ function shotMapColor(s: ShotSummary) {
 }
 
 const mapGrid = computed(() => {
-  const g = result.value?.map_grid
+  const fromLayout = layoutInfo.value?.map_grid || result.value?.map_grid || result.value?.layout?.map_grid
+  if (fromLayout) {
+    return {
+      minX: fromLayout.min_x,
+      maxX: fromLayout.max_x,
+      minY: fromLayout.min_y,
+      maxY: fromLayout.max_y,
+    }
+  }
   const shots = (result.value?.shots || []).filter((s) => s.x != null && s.y != null)
   if (shots.length) {
     const xs = shots.map((s) => s.x as number)
     const ys = shots.map((s) => s.y as number)
-    // 按 SN 坐标自适应；略扩边，避免单点撑满圆片
     const minX = Math.min(...xs)
     const maxX = Math.max(...xs)
     const minY = Math.min(...ys)
@@ -212,9 +225,6 @@ const mapGrid = computed(() => {
       minY: minY - padY,
       maxY: maxY + padY,
     }
-  }
-  if (g) {
-    return { minX: g.min_x, maxX: g.max_x, minY: g.min_y, maxY: g.max_y }
   }
   return { minX: 0, maxX: 9, minY: 0, maxY: 7 }
 })
@@ -233,7 +243,16 @@ const coords = computed<WaferCoord[]>(() =>
 
 const stats = computed(() => result.value?.stats)
 
-const dieGrid = computed<DieGridCell[]>(() => result.value?.die_grid || [])
+const dieGrid = computed<DieGridCell[]>(() => {
+  return result.value?.die_grid || layoutInfo.value?.die_grid || []
+})
+
+const layoutSummaryText = computed(() => {
+  const s = layoutInfo.value?.summary
+  if (!s) return '尚未上传 Shot 布局（需先上传类似 SF_DR8.txt）'
+  const name = layoutInfo.value?.filename || s.filename || 'layout'
+  return `${name} · ${s.shot_count} Shot · Die ${s.die_rows}×${s.die_cols} · TestKey ${s.test_key_count}`
+})
 
 const selectedShotDieMap = computed(() => {
   const map = new Map<string, NonNullable<ShotSummary['dies']>[number]>()
@@ -273,7 +292,8 @@ async function bootstrap() {
       ;[w, cfg] = await Promise.all([fetchWafers(), getDbConfig()])
       ElMessage.warning('数据库不可用，已自动切换为 Mock 样例数据')
     }
-    const t = await fetchTemplates()
+    const [t, layoutRes] = await Promise.all([fetchTemplates(), fetchCurrentLayout()])
+    layoutInfo.value = layoutRes.layout || null
     wafers.value = w
     templates.value = t.map((tpl) => ({
       ...tpl,
@@ -299,11 +319,39 @@ async function bootstrap() {
     if (!names.length) {
       ElMessage.warning('后端已通，但无晶圆数据。请确认项目含 mock/eav_rows.json，或配置 MySQL。')
     }
-    if (wafer.value) await runJudge()
+    if (!layoutInfo.value) {
+      ElMessage.warning('请先上传 Shot 布局文件（如 examples/SF_DR8.txt），再执行判定')
+    } else if (wafer.value) {
+      await runJudge()
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     apiStatus.value = `后端未连接 (${getApiBase()})`
     ElMessage.error(msg)
+  }
+}
+
+function openLayoutPicker() {
+  layoutFileInput.value?.click()
+}
+
+async function onLayoutFileChange(ev: Event) {
+  const input = ev.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  layoutUploading.value = true
+  try {
+    const res = await uploadLayout(file)
+    layoutInfo.value = res.layout
+    ElMessage.success(`布局已加载：${layoutSummaryText.value}`)
+    if (wafer.value) await runJudge()
+  } catch (e: unknown) {
+    const ax = e as { response?: { data?: { detail?: string } }; message?: string }
+    const detail = ax.response?.data?.detail || (e instanceof Error ? e.message : String(e))
+    ElMessage.error(`布局上传失败: ${detail}`)
+  } finally {
+    layoutUploading.value = false
   }
 }
 
@@ -375,21 +423,21 @@ function removeSpec(index: number) {
 
 async function runJudge() {
   if (!wafer.value) return
+  if (!layoutInfo.value) {
+    ElMessage.warning('请先上传 Shot 布局文件（如 SF_DR8.txt）')
+    return
+  }
   persistUiState()
   loading.value = true
   try {
     result.value = await judge(wafer.value, cloneSpecs(specs.value), currentTimeRange())
-    const dq = (
-      result.value as {
-        data_quality?: {
-          valued_test_count?: number
-          sample?: string[]
-          fetch?: { valued_itemvalue?: number; eav_1311?: number; head_rows?: number }
-        }
-      }
-    )?.data_quality
+    if (result.value.layout) {
+      layoutInfo.value = result.value.layout
+    }
+    const dq = result.value?.data_quality
     const fetchValued = dq?.fetch?.valued_itemvalue ?? 0
     const shownValued = dq?.valued_test_count ?? 0
+    const unmatched = dq?.coord?.unmatched_shot_count ?? 0
     if (shownValued === 0 && fetchValued === 0) {
       ElMessage.warning(
         `Wafer「${wafer.value}」在 WaveLength=1311 下未读到 ItemValue。请改选 UMU/DR4 片号（不要选 32(4,7) 这类错位数据）。`,
@@ -398,9 +446,15 @@ async function runJudge() {
       ElMessage.warning(
         `库中已读到 ${fetchValued} 条 ItemValue，但未能生成 Die/Note。请重新点「判定」或换一片 UMU/DR4。`,
       )
+    } else if (unmatched > 0) {
+      ElMessage.warning(
+        `有 ${unmatched} 个 Shot 号不在布局中（例如 ${ (dq?.coord?.unmatched_shots || []).slice(0, 5).join(', ') }），这些点不会画在图谱上。`,
+      )
     }
   } catch (e: unknown) {
-    ElMessage.error(`判定失败: ${e instanceof Error ? e.message : String(e)}`)
+    const ax = e as { response?: { data?: { detail?: string } } }
+    const detail = ax.response?.data?.detail || (e instanceof Error ? e.message : String(e))
+    ElMessage.error(`判定失败: ${detail}`)
   } finally {
     loading.value = false
   }
@@ -731,10 +785,21 @@ onUnmounted(() => {
           />
         </el-select>
         <el-button type="primary" @click="dbDialog = true">数据连接</el-button>
-        <el-button type="success" :loading="loading" @click="runJudge">确认 / 刷新</el-button>
+        <el-button :loading="layoutUploading" @click="openLayoutPicker">上传 Shot 布局</el-button>
+        <input
+          ref="layoutFileInput"
+          type="file"
+          accept=".txt,.tsv,text/plain"
+          class="hidden-file"
+          @change="onLayoutFileChange"
+        />
+        <el-button type="success" :loading="loading" :disabled="!layoutInfo" @click="runJudge">
+          确认 / 刷新
+        </el-button>
         <el-button size="small" @click="bootstrap">重连后端</el-button>
       </div>
       <div v-if="apiStatus" class="api-status">{{ apiStatus }}</div>
+      <div class="layout-status" :class="{ ready: !!layoutInfo }">{{ layoutSummaryText }}</div>
     </header>
 
     <main class="grid">
@@ -819,8 +884,13 @@ onUnmounted(() => {
               @die-click="openShot"
             />
             <div v-else class="empty">
-              暂无数据。请点右上角「数据连接」→ 打开「Mock 模式」→「保存并加载」。
-              若要用真库，关闭 Mock 并填好 MySQL 后测试连接。
+              <template v-if="!layoutInfo">
+                请先点右上角「上传 Shot 布局」，选择类似 examples/SF_DR8.txt 的 Level1/2 TSV。
+              </template>
+              <template v-else>
+                暂无数据。请点右上角「数据连接」→ 打开「Mock 模式」→「保存并加载」。
+                若要用真库，关闭 Mock 并填好 MySQL 后测试连接。
+              </template>
             </div>
           </div>
           <p class="hint">点击 Shot → 选择 Die → 查看芯片详情</p>
@@ -870,7 +940,7 @@ onUnmounted(() => {
       destroy-on-close
     >
       <p class="die-pick-tip">
-        布局 3×6（0203 空缺）。名称如 49SN0202。Shot 仅当全部 Die Pass 才算 Pass。
+        Die 布局来自上传的 Level2 模板（缺位为 Test Key）。名称如 49SN0202。Shot 仅当全部 Die Pass 才算 Pass。
         <span v-if="selectedShot">
           共 {{ selectedShot.die_count }} 颗 · Pass {{ selectedShot.pass_count }} · Fail
           {{ selectedShot.fail_count }} · Shot
@@ -1177,6 +1247,22 @@ h1 {
   font-size: 12px;
   color: #9ecbff;
   opacity: 0.9;
+}
+
+.layout-status {
+  width: 100%;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #f0c674;
+  opacity: 0.95;
+}
+
+.layout-status.ready {
+  color: #8fd19e;
+}
+
+.hidden-file {
+  display: none;
 }
 
 .grid {

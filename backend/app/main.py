@@ -3,15 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import store
+from . import layout_store, store
 from .data_source import get_dies, judge_wafer, list_item_names, list_wafers, test_mysql_connection
 from .export_excel import build_judge_workbook
+from .layout_tsv import LayoutParseError
 from .specs import get_template, is_builtin_template, list_templates
 
 store.init_db()
@@ -130,6 +131,46 @@ async def api_test_db(body: DbConfigIn) -> dict[str, Any]:
         return {"ok": False, "message": str(exc)}
 
 
+@app.get("/api/layout/current")
+async def api_layout_current() -> dict[str, Any]:
+    info = layout_store.public_layout_info()
+    if info is None:
+        return {"ok": False, "layout": None, "message": "尚未上传 Shot 布局文件"}
+    return {"ok": True, "layout": info}
+
+
+@app.post("/api/layout/upload")
+async def api_layout_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+    name = file.filename or "layout.txt"
+    if not re_search_layout_ext(name):
+        raise HTTPException(status_code=400, detail="请上传 .txt 或 .tsv 布局文件")
+    try:
+        raw = await file.read()
+        text = raw.decode("utf-8-sig")
+        layout = layout_store.set_layout_from_text(text, filename=name)
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=400, detail="文件编码需为 UTF-8") from exc
+    except LayoutParseError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"布局解析失败: {exc}") from exc
+    store.add_audit(
+        "layout_upload",
+        {
+            "filename": name,
+            "shot_count": len(layout.get("shots") or []),
+            "site_count": len(layout.get("sites") or []),
+            "layout_id": layout.get("layout_id"),
+        },
+    )
+    return {"ok": True, "layout": layout_store.public_layout_info(layout)}
+
+
+def re_search_layout_ext(name: str) -> bool:
+    lower = name.lower()
+    return lower.endswith(".txt") or lower.endswith(".tsv")
+
+
 @app.get("/api/wafers")
 async def api_wafers(start: str | None = None, end: str | None = None) -> dict[str, Any]:
     try:
@@ -182,6 +223,9 @@ async def api_judge(body: JudgeIn) -> dict[str, Any]:
             user_name=body.user_name,
         )
         return result
+    except RuntimeError as exc:
+        # 未上传布局等业务错误
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
