@@ -1,0 +1,37 @@
+INFO:     127.0.0.1:60909 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60795 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60795 - "GET /assets/index-Cbesux-L.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51622 - "GET /assets/index-B7FmHpAt.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:51622 - "GET /api/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51622 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60795 - "GET /api/db/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64024 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:64024 - "GET /api/spec-templates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60795 - "GET /api/layout/current HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51622 - "GET /api/layout/templates HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51622 - "GET /api/layout/view-settings/baa90a3315d8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51622 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "POST /api/db/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60739 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50209 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58078 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58078 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51803 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51803 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62496 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62496 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52310 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52310 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54781 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54781 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49862 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49862 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57186 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57186 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63868 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63868 - "POST /api/judge HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62544 - "GET /api/wafers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62544 - "POST /api/judge HTTP/1.1" 200 OK

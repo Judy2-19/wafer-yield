@@ -1,0 +1,35 @@
+{
+  "package_type": "windows-online-server",
+  "runtime": "Python 3.12 + FastAPI single-port mode",
+  "port": 8000,
+  "include": [
+    "backend/app",
+    "backend/tests",
+    "backend/requirements.txt",
+    "backend/data/layout_templates",
+    "backend/data/current_layout.json",
+    "backend/data/current_layout_id.txt",
+    "frontend/dist",
+    "frontend/src",
+    "frontend/package*.json",
+    "frontend/*.ts",
+    "mock",
+    "examples",
+    "mysql",
+    "README.md",
+    "使用手册.md",
+    "output/pdf/霸州晶圆判定工作台操作手册.pdf"
+  ],
+  "exclude": [
+    ".git",
+    ".venv",
+    "node_modules",
+    "local.db",
+    "*.log",
+    "__pycache__",
+    "*.pyc",
+    ".env",
+    ".idea",
+    "runtime"
+  ]
+}
